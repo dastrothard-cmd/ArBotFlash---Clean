@@ -1,7 +1,3 @@
-# ArbotFlash v0.13.4
+# ArbotFlash v0.13.5
 
-Independent eight-kingdom flashcard, identification, gaming and learning platform.
-
-This clean static package keeps the main deck focused, moves the project checklist to its own page, and adds an instructions page.
-
-Upload the contents of this folder to the clean GitHub repo and deploy with Vercel.
+Static clean deploy package. Includes the v0.13.5 TIDFC-style speech module pass, visible skins, standalone instructions and standalone project checklist.
