@@ -1,5 +1,5 @@
 
-const state={all:[],deck:[],index:0,revealed:false,quiz:false,voices:[],selectedVoice:null,speaking:false,readAloud:false,lastSpokenKey:''};
+const state={all:[],deck:[],index:0,revealed:false,quiz:false,voices:[],selectedVoice:null,speaking:false,readAloud:false,lastSpokenKey:'',voicesReady:false,pendingSpeech:''};
 const $=s=>document.querySelector(s);
 const uniq=arr=>[...new Set(arr.filter(Boolean))].sort((a,b)=>a.localeCompare(b));
 function optionize(sel,values){const el=$(sel); values.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;el.appendChild(o);});}
@@ -15,102 +15,114 @@ function renderGrid(){}
 function escapeHtml(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
 
 function getVoiceText(sp, mode='card'){
-  const cards=bestCards(sp);
-  const field=(cards[0]||{}).text||'';
-  const bark=(cards.find(c=>c.label==='Bark')||cards[1]||{}).text||'';
-  if(mode==='test') return 'ArbotFlash voice test. AI Australian female voice module ready.';
-  if(state.quiz && !state.revealed) return `Mystery specimen. ${short(field,160)}`;
-  return `${sp.commonName}. ${sp.scientificName}. ${short(field,220)} ${short(bark,160)}`.trim();
+  if(mode==='test') return 'ArbotFlash voice test. Australian speech module ready.';
+  if(!sp) return '';
+  // Match the Tree ID Trainer behaviour: speak the current card side only, not the whole profile.
+  // For ArbotFlash at this stage, that means names only.
+  if(state.quiz && !state.revealed) return 'Mystery specimen.';
+  return [sp.commonName, sp.scientificName].filter(Boolean).join('. ') + '.';
 }
+function speechSupported(){return 'speechSynthesis' in window && typeof SpeechSynthesisUtterance!=='undefined';}
 function voiceRank(v){
   const name=`${v.name} ${v.lang}`.toLowerCase();
   let score=0;
-  if(/en-au|australia|australian/.test(name)) score+=50;
-  if(/female|samantha|karen|tessa|moira|serena|zira|aria|jenny|natasha|olivia/.test(name)) score+=25;
+  if(/en-au|australia|australian/.test(name)) score+=60;
+  if(/female|samantha|karen|tessa|moira|serena|zira|aria|jenny|natasha|olivia/.test(name)) score+=20;
   if(/^en/.test((v.lang||'').toLowerCase())) score+=10;
   if(/google|microsoft|apple|natural|premium|enhanced/.test(name)) score+=8;
   return score;
 }
+function voiceLabel(v){return v ? `${v.name} · ${v.lang||'unknown'}` : 'No usable voice';}
 function loadVoiceCache(){
   try{return JSON.parse(localStorage.getItem('arbotflashVoiceCache')||'null')||null}catch(e){return null}
 }
+function describeVoiceState(){
+  if(!speechSupported()) return 'Speech is unavailable in this browser.';
+  if(!state.voicesReady) return 'Waiting for this device to provide its installed voices…';
+  if(!state.selectedVoice) return 'No usable voice is installed. Try Reload voices.';
+  return `Using: ${voiceLabel(state.selectedVoice)}`;
+}
 function cacheVoiceList(){
   try{
-    const payload={saved:new Date().toISOString(),voices:state.voices.map(v=>({name:v.name,lang:v.lang}))};
+    const payload={saved:new Date().toISOString(),voices:state.voices.map(v=>({name:v.name,lang:v.lang,voiceURI:v.voiceURI}))};
     localStorage.setItem('arbotflashVoiceCache',JSON.stringify(payload));
-    setVoiceStatus(`AI cache saved · ${payload.voices.length} voices`);
+    setVoiceStatus(`Voice list cached · ${payload.voices.length} installed voices`);
   }catch(e){setVoiceStatus('Could not cache voices on this device.');}
 }
 function clearVoiceCache(){
   try{localStorage.removeItem('arbotflashVoiceCache');localStorage.removeItem('arbotflashVoiceName');localStorage.removeItem('arbotflashReadAloud');}catch(e){}
-  setVoiceStatus('AI cache cleared. Reload voices when ready.');
+  setVoiceStatus('Voice cache cleared. Reload voices when ready.');
 }
 function populateVoices(){
   const sel=$('#voiceSelect');
   if(!sel) return;
-  if(!('speechSynthesis' in window)){
+  if(!speechSupported()){
     sel.innerHTML='<option>Speech not available on this browser</option>';
-    setVoiceStatus('Speech is not available on this browser.');
+    state.voices=[];state.selectedVoice=null;state.voicesReady=false;
+    setVoiceStatus('Speech is unavailable in this browser.');
     return;
   }
   const voices=window.speechSynthesis.getVoices();
   state.voices=voices.slice().sort((a,b)=>voiceRank(b)-voiceRank(a)||a.name.localeCompare(b.name));
+  state.voicesReady=state.voices.length>0;
   const savedName=localStorage.getItem('arbotflashVoiceName');
-  const preferred=state.voices.find(v=>v.name===savedName)||state.voices[0]||null;
+  const preferred=state.voices.find(v=>v.voiceURI===savedName||v.name===savedName)||state.voices[0]||null;
   state.selectedVoice=preferred;
   sel.innerHTML='';
-  state.voices.forEach(v=>{
-    const o=document.createElement('option');
-    o.value=v.name;
-    const aiTag=voiceRank(v)>=50?'AI Australian candidate':'Device fallback';
-    o.textContent=`${v.name} · ${v.lang} · ${aiTag}`;
-    if(preferred&&v.name===preferred.name) o.selected=true;
-    sel.appendChild(o);
-  });
   if(!state.voices.length){
     const cached=loadVoiceCache();
     const o=document.createElement('option');
-    o.textContent=cached?`Cached voices available · reload browser voices`:'No voices found yet · tap reload voices';
+    o.textContent=cached?'Cached list saved · tap Reload voices':'Loading installed voices…';
     sel.appendChild(o);
+  }else{
+    state.voices.forEach(v=>{
+      const o=document.createElement('option');
+      o.value=v.voiceURI||v.name;
+      o.textContent=voiceLabel(v);
+      if(preferred&&(v.voiceURI===preferred.voiceURI||v.name===preferred.name)) o.selected=true;
+      sel.appendChild(o);
+    });
   }
   updateVoiceSourceLabel();
+  setVoiceStatus(describeVoiceState());
+  if(state.pendingSpeech && state.readAloud){
+    const pending=state.pendingSpeech; state.pendingSpeech=''; speakText(pending,'auto');
+  }
 }
 function updateVoiceSourceLabel(){
   const label=$('#voiceSourceLabel');
   if(!label) return;
-  if(state.selectedVoice){
-    const au=/en-AU|Australia|Australian/i.test(`${state.selectedVoice.name} ${state.selectedVoice.lang}`);
-    label.textContent=au?'AI Australian — Female':'Device voice fallback';
-  } else {
-    label.textContent='AI Australian — Female';
-  }
+  label.textContent='AI Australian — Female';
 }
 function setReadAloud(on){
   state.readAloud=!!on;
   try{localStorage.setItem('arbotflashReadAloud',state.readAloud?'1':'0')}catch(e){}
   $('#readOnBtn')?.classList.toggle('active',state.readAloud);
   $('#readOffBtn')?.classList.toggle('active',!state.readAloud);
-  setVoiceStatus(state.readAloud?'Read aloud on. Cards will speak as you study.':'Read aloud off. Voice will only speak when tested.');
   if(!state.readAloud) stopSpeech(false);
+  setVoiceStatus(state.readAloud?'Read aloud on. The app will read names only.':'Read aloud off. Voice will only speak when tested.');
 }
 function setVoiceStatus(text){const el=$('#voiceStatus'); if(el) el.textContent=text;}
 function stopSpeech(update=true){
-  if('speechSynthesis' in window) window.speechSynthesis.cancel();
+  if(speechSupported()) window.speechSynthesis.cancel();
   state.speaking=false;
   if(update) setVoiceStatus(state.readAloud?'Voice stopped. Read aloud remains on.':'Voice stopped. Read aloud is off.');
 }
 function speakText(text, reason='manual'){
-  if(!('speechSynthesis' in window)){setVoiceStatus('Voice unavailable on this browser.');return;}
+  if(!speechSupported()){setVoiceStatus('Voice unavailable on this browser.');return;}
   if(!text) return;
+  if(!state.voicesReady){state.pendingSpeech=String(text);populateVoices();return;}
+  const voice=state.selectedVoice;
+  if(!voice){populateVoices();setVoiceStatus('No usable voice is installed.');return;}
   window.speechSynthesis.cancel();
-  const u=new SpeechSynthesisUtterance(text);
-  if(state.selectedVoice) u.voice=state.selectedVoice;
-  u.lang=(state.selectedVoice&&state.selectedVoice.lang)||'en-AU';
-  u.rate=.88;
-  u.pitch=1.02;
-  u.onstart=()=>{state.speaking=true;setVoiceStatus(reason==='test'?'Testing voice…':'Speaking card…');};
-  u.onend=()=>{state.speaking=false;setVoiceStatus(state.readAloud?'Read aloud on.':'Read aloud off.');};
-  u.onerror=()=>{state.speaking=false;setVoiceStatus('Voice stopped or blocked by browser.');};
+  const u=new SpeechSynthesisUtterance(String(text));
+  u.voice=voice;
+  u.lang=voice.lang || 'en-AU';
+  u.rate=.92;
+  u.pitch=1;
+  u.onstart=()=>{state.speaking=true;setVoiceStatus(reason==='test'?'Testing voice…':'Speaking names…');};
+  u.onend=()=>{state.speaking=false;setVoiceStatus(describeVoiceState());};
+  u.onerror=()=>{state.speaking=false;setVoiceStatus('That voice failed. Pick another voice and press Test voice.');};
   window.speechSynthesis.speak(u);
 }
 function speakCurrent(reason='manual'){
@@ -133,5 +145,5 @@ function setSkin(name){
   document.querySelectorAll('[data-skin]').forEach(b=>b.classList.toggle('active',b.dataset.skin===name));
 }
 
-async function init(){const res=await fetch('data/species.json');const data=await res.json();state.all=data.species;state.deck=[...state.all];optionize('#familyFilter',uniq(state.all.map(x=>x.family)));optionize('#regionFilter',uniq(state.all.flatMap(x=>x.regions||[])));optionize('#formFilter',uniq(state.all.flatMap(x=>x.forms||[])));['#search','#familyFilter','#regionFilter','#formFilter'].forEach(s=>$(s).addEventListener('input',applyFilters));$('#resetBtn').addEventListener('click',()=>{$('#search').value='';$('#familyFilter').value='';$('#regionFilter').value='';$('#formFilter').value='';applyFilters();});$('#nextBtn').addEventListener('click',()=>{if(state.deck.length){state.index=(state.index+1)%state.deck.length;state.revealed=false;renderCard();setTimeout(maybeAutoSpeak,60);}});$('#prevBtn').addEventListener('click',()=>{if(state.deck.length){state.index=(state.index-1+state.deck.length)%state.deck.length;state.revealed=false;renderCard();setTimeout(maybeAutoSpeak,60);}});$('#revealBtn').addEventListener('click',()=>{state.revealed=!state.revealed;renderCard();setTimeout(maybeAutoSpeak,60);});$('#voiceTestBtn').addEventListener('click',()=>speakText(getVoiceText(state.deck[state.index%state.deck.length]||{},'test'),'test'));$('#voiceStopBtn').addEventListener('click',()=>stopSpeech(true));$('#voiceReloadBtn').addEventListener('click',()=>{populateVoices();setVoiceStatus('Voices reloaded.');});$('#voiceCacheBtn').addEventListener('click',cacheVoiceList);$('#voiceClearBtn').addEventListener('click',clearVoiceCache);$('#readOnBtn').addEventListener('click',()=>setReadAloud(true));$('#readOffBtn').addEventListener('click',()=>setReadAloud(false));$('#voiceSelect').addEventListener('change',e=>{state.selectedVoice=state.voices.find(v=>v.name===e.target.value)||null;try{localStorage.setItem('arbotflashVoiceName',e.target.value)}catch(x){}updateVoiceSourceLabel();});populateVoices();state.readAloud=localStorage.getItem('arbotflashReadAloud')==='1';setReadAloud(state.readAloud);if('speechSynthesis' in window) window.speechSynthesis.onvoiceschanged=populateVoices;document.querySelectorAll('[data-skin]').forEach(b=>b.addEventListener('click',()=>setSkin(b.dataset.skin)));$('#studyBtn').addEventListener('click',()=>{state.quiz=false;state.revealed=true;$('#studyBtn').classList.add('active');$('#quizBtn').classList.remove('active');renderCard();});$('#quizBtn').addEventListener('click',()=>{state.quiz=true;state.revealed=false;$('#quizBtn').classList.add('active');$('#studyBtn').classList.remove('active');renderCard();setTimeout(maybeAutoSpeak,60);});state.revealed=true;render();}
+async function init(){const res=await fetch('data/species.json');const data=await res.json();state.all=data.species;state.deck=[...state.all];optionize('#familyFilter',uniq(state.all.map(x=>x.family)));optionize('#regionFilter',uniq(state.all.flatMap(x=>x.regions||[])));optionize('#formFilter',uniq(state.all.flatMap(x=>x.forms||[])));['#search','#familyFilter','#regionFilter','#formFilter'].forEach(s=>$(s).addEventListener('input',applyFilters));$('#resetBtn').addEventListener('click',()=>{$('#search').value='';$('#familyFilter').value='';$('#regionFilter').value='';$('#formFilter').value='';applyFilters();});$('#nextBtn').addEventListener('click',()=>{if(state.deck.length){state.index=(state.index+1)%state.deck.length;state.revealed=false;renderCard();setTimeout(maybeAutoSpeak,60);}});$('#prevBtn').addEventListener('click',()=>{if(state.deck.length){state.index=(state.index-1+state.deck.length)%state.deck.length;state.revealed=false;renderCard();setTimeout(maybeAutoSpeak,60);}});$('#revealBtn').addEventListener('click',()=>{state.revealed=!state.revealed;renderCard();setTimeout(maybeAutoSpeak,60);});$('#voiceTestBtn').addEventListener('click',()=>speakText(getVoiceText(state.deck[state.index%state.deck.length]||{},'test'),'test'));$('#voiceStopBtn').addEventListener('click',()=>stopSpeech(true));$('#voiceReloadBtn').addEventListener('click',()=>{populateVoices();setVoiceStatus('Voices reloaded.');});$('#voiceCacheBtn').addEventListener('click',cacheVoiceList);$('#voiceClearBtn').addEventListener('click',clearVoiceCache);$('#readOnBtn').addEventListener('click',()=>setReadAloud(true));$('#readOffBtn').addEventListener('click',()=>setReadAloud(false));$('#voiceSelect').addEventListener('change',e=>{state.selectedVoice=state.voices.find(v=>(v.voiceURI||v.name)===e.target.value)||null;try{localStorage.setItem('arbotflashVoiceName',e.target.value)}catch(x){}updateVoiceSourceLabel();setVoiceStatus(describeVoiceState());});populateVoices();state.readAloud=localStorage.getItem('arbotflashReadAloud')==='1';setReadAloud(state.readAloud);if('speechSynthesis' in window) window.speechSynthesis.onvoiceschanged=populateVoices;document.querySelectorAll('[data-skin]').forEach(b=>b.addEventListener('click',()=>setSkin(b.dataset.skin)));$('#studyBtn').addEventListener('click',()=>{state.quiz=false;state.revealed=true;$('#studyBtn').classList.add('active');$('#quizBtn').classList.remove('active');renderCard();});$('#quizBtn').addEventListener('click',()=>{state.quiz=true;state.revealed=false;$('#quizBtn').classList.add('active');$('#studyBtn').classList.remove('active');renderCard();setTimeout(maybeAutoSpeak,60);});state.revealed=true;render();}
 init().catch(err=>{document.body.insertAdjacentHTML('afterbegin',`<div class="empty">Could not load ArbotFlash data: ${escapeHtml(err.message)}</div>`)});
