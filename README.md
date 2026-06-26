@@ -1,11 +1,12 @@
-# ArbotFlash v0.13.7
+# ArbotFlash v0.14.0 — TIDFC framework reset
 
-Clean static deploy package.
+This package resets the public ArbotFlash UI back onto the verified Tree ID Trainer v15.23 framework while preserving ArbotFlash as an independent project.
 
-Focus of this release:
-- fixes the speech module to follow the Tree ID Trainer browser/device speech control pattern rather than a fake AI label
-- speech reads card names only, not the whole profile
-- keeps skins, standalone instructions, standalone checklist and adds a standalone audit page
-- footer: v0.13.7 ArbotFlash is an independent project · 26 June 2026
+Included:
+- TIDFC layout, skins, buttons and speech module structure
+- TIDFC `/api/speech.js` AI voice endpoint
+- ArbotFlash 80-taxon data with profile fields
+- 80 local licensed specimen images in `media/thumbs`
+- independent ArbotFlash footer
 
-Known limitation: the optional server AI speech from the finished Tree ID Trainer is not wired into this static clean package yet. This release fixes the immediate behaviour and removes the misleading fake AI voice label.
+Important for AI voice: set `OPENAI_API_KEY` in Vercel Project Settings → Environment Variables, then redeploy. Without that key, the AI voice endpoint will correctly report that AI voices are not connected.
